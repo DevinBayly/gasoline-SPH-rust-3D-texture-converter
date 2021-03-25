@@ -1,5 +1,5 @@
 use byteorder::{BigEndian, LittleEndian, ReadBytesExt};
-use image::{GenericImage, GenericImageView, GrayImage, ImageBuffer, Luma};
+use image::{DynamicImage,GenericImage, GenericImageView, RgbImage, GrayImage, ImageBuffer, Luma};
 use std::fs::read;
 use std::io::Cursor;
 use std::thread;
@@ -92,92 +92,27 @@ fn main() {
         particle.pos[2] = z_extent.norm(particle.pos[2]);
     }
     // create an image
-    let im_dims = (512 * 4, 512 * 4);
-    let number_layers = 16 * 4;
-    let layer_start = 0.57;
-    let layer_end = 0.62;
-    let thickness = (layer_end - layer_start) / (number_layers as f32);
-    // amount of tiled images in the 3D texture
-    let texture_side_number = (number_layers as f64).sqrt() as u32 + 1;
-    println!(
-        "num layers {} side number {}",
-        number_layers, texture_side_number
-    );
-    let mut layers = vec![];
-    for layer_index in 0..number_layers {
-        println!("layer {} of {}", layer_index, number_layers);
-        let mut layer_vec = vec![];
-        for sph in normalized_sphs.iter() {
-            if sph.pos[2] >= ((layer_index as f32) * thickness + layer_start)
-                && sph.pos[2] < (((layer_index + 1) as f32) * thickness + layer_start)
-            {
-                layer_vec.push(sph.clone())
-            }
-        }
-        println!(
-            "slice {} {} has {} elements",
-            ((layer_index as f32) * thickness + layer_start),
-            (((layer_index + 1) as f32) * thickness + layer_start),
-            layer_vec.len()
-        );
-        // run tile image maker on layer_vec
-        layers.push(layer_vec);
-    }
-    //
-    // for each image make a thread task to output it
-    //let mut threads = vec![];
-    //for layer_index in 0..layers.len() {
-    //    let layer_vec = layers[layer_index].clone();
-    //    threads.push(thread::spawn(move || {
-    //        make_tile_image(layer_vec, layer_index as u32, im_dims, texture_side_number);
-    //    }));
-    //}
-    //// call join on each
-    //for thread in threads {
-    //    thread.join().unwrap();
-    //}
 
-    // put single image together from the parts
-    println!("assembling from tiles");
-    // make the large image it will be imdims* texture_side_len x imdims*texture_side_len
-    let mut three_d_texture: GrayImage = ImageBuffer::new(
-        texture_side_number * im_dims.0,
-        texture_side_number * im_dims.1,
-    );
-    println!("made big empty");
+    let side_len = (nsph as f32).sqrt() as u32;
+    let mut img = DynamicImage::new_rgb16(side_len,side_len).to_rgb16();
+
+    // read the individual particles into the image
     let mut end = false;
-    for row in 0..texture_side_number {
-        if end {
-            break;
-        }
-        for col in 0..texture_side_number {
-            if end {
-                break;
+    // iterate over the pixels
+    let mut i = 0;
+    let scalar = 100000.0;
+    for (x,y,pixel) in img.enumerate_pixels_mut() {
+        match normalized_sphs.get(i) {
+            Some(particle) => {
+                println!("{:?}",[(particle.pos[0]*scalar) ,(particle.pos[1]*scalar) ,(particle.pos[2]*scalar)]);
+                *pixel = image::Rgb([(particle.pos[0]*scalar) as u16,(particle.pos[1]*scalar) as u16,(particle.pos[2]*scalar) as u16]);
             }
-            // these will be used to get the file name of an image
-            println!("adding col {} row {}", col, row);
-            match image::open(format!("test_points_{}_{}.png", row, col)) {
-                Ok(im) => {
-                    let generic_tile_img = im.into_luma8();
-                    // copy into the 3D texture
-                    three_d_texture
-                        .copy_from(
-                            &generic_tile_img,
-                            col as u32 * im_dims.0,
-                            row as u32 * im_dims.1,
-                        )
-                        .expect("copy fail");
-                }
-                _ => {
-                    println!("reached end ");
-                    end = true;
-                    break;
-                }
-            };
-        }
+            _=> break
+        };
+        i+=1;
     }
-    println!("saving");
-    three_d_texture.save("3D_test.png").unwrap();
+    img.save("test_positions.png").unwrap();
+
 }
 fn make_tile_image(
     layer_vector: Vec<Particle>,
